@@ -10,3 +10,4 @@ lbforaging==2.0.0
 sacred>=0.8.7,<0.9
 cloudpickle
 pytest>=8
+psutil>=5.9

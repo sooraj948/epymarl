@@ -12,22 +12,27 @@ The matching baseline uses `--config=maca_baseline_ns`. Both default to CPU,
 million environment steps. Dependencies are in
 [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is the tested runtime.
 
-Run both methods for seeds **1587, 2398, 2875 and 3370** with:
+Run baseline, MACA and **stock COMA** for seeds **1587, 2398, 2875 and 3370** with
+up to eight simultaneous training jobs:
 
 ```bash
-./run_maca_comparison.sh
+./run_maca_comparison.sh --max-parallel 8
 ```
 
-The launcher runs four baseline seeds in parallel, then four MACA seeds. Use
-`--dry-run` to inspect commands, or append overrides such as
-`t_max=2000000 maca.beta=0.05`. Console logs are saved under
-`results/comparisons/`. See [walkthrough 76](docs/walkthrough-76.md).
+The launcher fills one shared pool across methods. Select methods with
+`--methods baseline maca coma`, seeds with `--seeds 1587 2398`, and another task
+with `--env Foraging-10x10-3p-2f-coop-v3`. The portable default pool size is four.
+Use `--check-resources`, `--benchmark`, or `--dry-run` before longer runs. Ordinary
+Sacred overrides apply to all methods; `maca.*` overrides apply only to MACA.
+Logs, resource summaries and model/credit artifacts are saved under
+`results/comparisons/`; Sacred metrics remain under `results/sacred/`.
 
-See [walkthrough 75](docs/walkthrough-75.md) for installation, settings, outputs,
-validation and checkpoint behavior. **The policy uses EPyMARL n-step PPO while
+See [walkthrough 77](docs/walkthrough-77.md) for installation, settings, outputs,
+validation, four-versus-eight resource measurements and checkpoint behavior.
+**The policy uses EPyMARL n-step PPO while
 the mixer teacher uses GAE.** This remains a major experimental issue for a
-later controlled comparison. The original [integration plan](docs/walkthrough-73.md)
-and [repository setup](docs/walkthrough-74.md) preserve the design history.
+later controlled comparison. Stock COMA retains its shared recurrent actors
+and reward standardization; it is a separate algorithm baseline.
 
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
