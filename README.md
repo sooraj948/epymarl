@@ -1,5 +1,17 @@
 # Extended Python MARL framework - EPyMARL
 
+This fork is the single repository for MACA development on EPyMARL. The existing
+MACA components are in [`src/maca/`](src/maca/). The import is complete; connecting
+them to EPyMARL's learner is the next implementation step. See the
+[integration plan](docs/walkthrough-73.md) and
+[repository setup](docs/walkthrough-74.md) for the agreed scope and source commits.
+
+The imported MACA code requires Python 3.9 or newer. Its additional dependencies
+are listed in [`requirements-maca.txt`](requirements-maca.txt). The initial
+integration targets online random-donor splice with `mappo_ns`. Keeping n-step
+PPO while the mixer teacher uses GAE is a major open experimental issue,
+documented in the integration plan.
+
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
 - **New!** Updated EPyMARL to use maintained [Gymnasium](https://gymnasium.farama.org/index.html) library instead of deprecated OpenAI Gym version 0.21.

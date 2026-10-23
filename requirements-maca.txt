@@ -1,0 +1,4 @@
+# Dependencies for the imported MACA components and native LBF environments.
+-r requirements.txt
+scikit-learn
+lbforaging
