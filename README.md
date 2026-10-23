@@ -12,6 +12,17 @@ The matching baseline uses `--config=maca_baseline_ns`. Both default to CPU,
 million environment steps. Dependencies are in
 [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is the tested runtime.
 
+Run both methods for seeds **1587, 2398, 2875 and 3370** with:
+
+```bash
+./run_maca_comparison.sh
+```
+
+The launcher runs four baseline seeds in parallel, then four MACA seeds. Use
+`--dry-run` to inspect commands, or append overrides such as
+`t_max=2000000 maca.beta=0.05`. Console logs are saved under
+`results/comparisons/`. See [walkthrough 76](docs/walkthrough-76.md).
+
 See [walkthrough 75](docs/walkthrough-75.md) for installation, settings, outputs,
 validation and checkpoint behavior. **The policy uses EPyMARL n-step PPO while
 the mixer teacher uses GAE.** This remains a major experimental issue for a
