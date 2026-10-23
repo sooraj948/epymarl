@@ -357,7 +357,6 @@ class OnlinePPOScorer(FrozenPPOScorer):
 def load_random_trajectory_bank(config, path, require_actions=False):
     """Cache uniform joint-policy donor states/actions without disturbing training RNG."""
     import gymnasium as gym
-    from auxillary.reset_oracle import _is_done
     path = Path(path)
     metadata = {"schema": "uniform-joint-pre-action-v2", "seed": config.seed,
                 "env_name": config.env_name, "episodes": config.n_samples,
@@ -392,7 +391,7 @@ def load_random_trajectory_bank(config, path, require_actions=False):
                 actions = rng.integers(config.action_dim, size=config.n_agents).tolist()
                 states[-1]["actions"] = actions
                 _, _, terminated, truncated, _ = env.step(actions)
-                if _is_done(terminated, truncated):
+                if bool(np.all(terminated)) or bool(np.all(truncated)):
                     break
             episodes.append(states)
     finally:
@@ -407,7 +406,7 @@ def load_random_trajectory_bank(config, path, require_actions=False):
 
 
 class CreditPipeline:
-    def __init__(self, config, encoder, reducer, density, shaper, buffer, checkpoint=None, agents=None):
+    def __init__(self, config, encoder, reducer, density, shaper, buffer, checkpoint=None, agents=None, scorer=None):
         self.config, self.encoder, self.reducer = config, encoder, reducer
         self.density, self.shaper, self.buffer = density, shaper, buffer
         self.pipeline = config.pipeline
@@ -449,7 +448,8 @@ class CreditPipeline:
         if getattr(config, "online_critic_score", False) and not self.mean_advantage_score:
             raise ValueError("Online critic scoring requires mean advantage scoring")
         self.mixer = self.pipeline in (2, 5)
-        self.frozen = (OnlinePPOScorer(agents, config) if getattr(config, "online_critic_score", False)
+        self.frozen = (scorer if scorer is not None else
+                       OnlinePPOScorer(agents, config) if getattr(config, "online_critic_score", False)
                        else FrozenPPOScorer(checkpoint, config) if self.pipeline in (3, 4, 5)
                        else None)
         self.oracle_rng = np.random.default_rng(config.seed + 1_000_003)

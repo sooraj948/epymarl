@@ -9,7 +9,7 @@
 5. **Use CPU and original team reward units for the first comparison.** Set `use_cuda=False`, `common_reward=True`, `reward_scalarisation="sum"`, `standardise_rewards=False` and `standardise_returns=False` in both new comparison configurations. These are proposed implementation defaults, not requirements of MACA. Keep other PPO settings matched. Do not infer equivalence to stock reward-standardized EPyMARL or historical MACA runs.
 6. **Compute credit once before each PPO update.** Process each fresh rollout episode once, hold teacher critic parameters fixed while processing that batch and reuse the resulting shaped rewards across PPO epochs. Preserve original episode rewards for logging, evaluation and mixer teacher rewards.
 
-This is an implementation plan. The training integration has not been implemented. Repository inspection used MACA commit `893f188` and EPyMARL commit `cbc38c0`. The single-repository approach supersedes the earlier proposal for two maintained repositories and an editable MACA dependency.
+This is the original implementation plan. The initial integration is now implemented and validated in [walkthrough 75](walkthrough-75.md), which provides the current commands and resolved defaults. Repository inspection used MACA commit `893f188` and EPyMARL commit `cbc38c0`. The single-repository approach supersedes the earlier proposal for two maintained repositories and an editable MACA dependency.
 
 ## Git and GitHub setup
 

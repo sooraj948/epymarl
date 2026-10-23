@@ -1,16 +1,22 @@
 # Extended Python MARL framework - EPyMARL
 
-This fork is the single repository for MACA development on EPyMARL. The existing
-MACA components are in [`src/maca/`](src/maca/). The import is complete; connecting
-them to EPyMARL's learner is the next implementation step. See the
-[integration plan](docs/walkthrough-73.md) and
-[repository setup](docs/walkthrough-74.md) for the agreed scope and source commits.
+This fork integrates online random-donor MACA credit with EPyMARL's separate,
+feedforward MAPPO actors and centralized critics. Run from this repository:
 
-The imported MACA code requires Python 3.9 or newer. Its additional dependencies
-are listed in [`requirements-maca.txt`](requirements-maca.txt). The initial
-integration targets online random-donor splice with `mappo_ns`. Keeping n-step
-PPO while the mixer teacher uses GAE is a major open experimental issue,
-documented in the integration plan.
+```bash
+../.TPCA/bin/python src/main.py --config=maca_mappo_ns --env-config=gymma with seed=1587
+```
+
+The matching baseline uses `--config=maca_baseline_ns`. Both default to CPU,
+8x8 cooperative LBF with two agents and two foods, a 50-step horizon, and one
+million environment steps. Dependencies are in
+[`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is the tested runtime.
+
+See [walkthrough 75](docs/walkthrough-75.md) for installation, settings, outputs,
+validation and checkpoint behavior. **The policy uses EPyMARL n-step PPO while
+the mixer teacher uses GAE.** This remains a major experimental issue for a
+later controlled comparison. The original [integration plan](docs/walkthrough-73.md)
+and [repository setup](docs/walkthrough-74.md) preserve the design history.
 
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)

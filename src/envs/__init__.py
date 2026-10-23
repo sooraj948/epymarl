@@ -3,7 +3,6 @@ import sys
 
 from .multiagentenv import MultiAgentEnv
 from .gymma import GymmaWrapper
-from .smaclite_wrapper import SMACliteWrapper
 
 
 if sys.platform == "linux":
@@ -24,6 +23,8 @@ def __check_and_prepare_smac_kwargs(kwargs):
 
 
 def smaclite_fn(**kwargs) -> MultiAgentEnv:
+    from .smaclite_wrapper import SMACliteWrapper
+
     kwargs = __check_and_prepare_smac_kwargs(kwargs)
     return SMACliteWrapper(**kwargs)
 

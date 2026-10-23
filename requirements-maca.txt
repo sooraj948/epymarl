@@ -1,4 +1,12 @@
-# Dependencies for the imported MACA components and native LBF environments.
--r requirements.txt
+# Minimal CPU/GPU-independent dependencies for native LBF and MACA MAPPO.
+# Other EPyMARL environments can use the original requirements files separately.
+numpy>=1.24
+torch>=2.2
+PyYAML>=6.0
+scipy
 scikit-learn
-lbforaging
+gymnasium>=1.0,<2
+lbforaging==2.0.0
+sacred>=0.8.7,<0.9
+cloudpickle
+pytest>=8
