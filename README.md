@@ -15,7 +15,7 @@ wrapper selects `../.TPCA/bin/python`, or `MACA_PYTHON` if set. Dependencies are
 in [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is tested.
 
 The suite runs these full-sight, 50-step LBF tasks **sequentially**, each with
-up to four simultaneous CPU trainers:
+up to eight simultaneous CPU trainers:
 
 | Task | Steps per run | Jobs |
 | --- | ---: | ---: |

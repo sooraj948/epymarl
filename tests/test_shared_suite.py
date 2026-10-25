@@ -12,7 +12,7 @@ import run_shared_suite as suite
 def test_full_suite_protocol(tmp_path):
     args = suite.parse_args([])
     stages = suite.stages_for(args, tmp_path)
-    assert args.max_parallel == 4
+    assert args.max_parallel == 8
     assert [len(stage["jobs"]) for stage in stages] == [19, 8, 8]
     for index, stage in enumerate(stages):
         assert ("-coop-" in stage["environment"]) == (index == 0)
@@ -64,7 +64,7 @@ def test_stages_run_sequentially_and_completed_resume(tmp_path, monkeypatch):
         calls.append(Path(output).name)
         Path(output).mkdir()
         (Path(output) / "summary.json").write_text(json.dumps({"status": "completed"}))
-        assert parallel == 4
+        assert parallel == 8
     monkeypatch.setattr(suite, "run_pool", fake_pool)
     assert suite.main([]) == 0
     assert calls == [task[0] for task in suite.TASKS]

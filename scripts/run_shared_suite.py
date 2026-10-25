@@ -25,7 +25,7 @@ TASKS = (
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--max-parallel", type=int, default=4)
+    parser.add_argument("--max-parallel", type=int, default=8)
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true",
