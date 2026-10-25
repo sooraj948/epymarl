@@ -1,38 +1,46 @@
 # Extended Python MARL framework - EPyMARL
 
-This fork integrates online random-donor MACA credit with EPyMARL's separate,
-feedforward MAPPO actors and centralized critics. Run from this repository:
+This fork augments EPyMARL MAPPO with online random-donor MACA credit. The shared
+MAPPO configuration retains the stock recurrent actors, agent-conditioned shared
+centralized critic, entropy coefficient 0.001, and reward standardization.
 
 ```bash
-../.TPCA/bin/python src/main.py --config=maca_mappo_ns --env-config=gymma with seed=1587
+./run_shared_suite.sh --dry-run
+./run_shared_suite.sh --tmux
 ```
 
-The matching baseline uses `--config=maca_baseline_ns`. Both default to CPU,
-8x8 cooperative LBF with two agents and two foods, a 50-step horizon, and one
-million environment steps. Dependencies are in
-[`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is the tested runtime.
+`--tmux` starts a detached window in the **existing** `epymarl-maca` session.
+Omit it to run in the current terminal. No virtualenv activation is needed: the
+wrapper selects `../.TPCA/bin/python`, or `MACA_PYTHON` if set. Dependencies are
+in [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is tested.
 
-Run baseline, MACA and **stock COMA** for seeds **1587, 2398, 2875 and 3370** with
-up to eight simultaneous training jobs:
+The suite runs these full-sight, 50-step LBF tasks **sequentially**, each with
+up to eight simultaneous CPU trainers:
 
-```bash
-./run_maca_comparison.sh --max-parallel 8
-```
+| Task | Steps per run | Jobs |
+| --- | ---: | ---: |
+| 8x8, 2 players, 2 foods, forced cooperation | 2M | 19 |
+| 8x8, 3 players, 2 foods, standard cooperation | 2M | 20 |
+| 10x10, 3 players, 3 foods, standard cooperation | 4M | 20 |
 
-The launcher fills one shared pool across methods. Select methods with
-`--methods baseline maca coma`, seeds with `--seeds 1587 2398`, and another task
-with `--env Foraging-10x10-3p-2f-coop-v3`. The portable default pool size is four.
-Use `--check-resources`, `--benchmark`, or `--dry-run` before longer runs. Ordinary
-Sacred overrides apply to all methods; `maca.*` overrides apply only to MACA.
-Logs, resource summaries and model/credit artifacts are saved under
-`results/comparisons/`; Sacred metrics remain under `results/sacred/`.
+Every task includes stock `mappo`, stock `coma`, and `maca_mappo` at beta 0.08,
+0.1 and 0.15 using no-replay splice. Seeds are **1587, 2398, 2875 and 3370**;
+only the first task's vanilla MAPPO omits 1587 because its historical completed
+result already exists. Beta retains MACA's existing dynamic schedule. No
+task-specific algorithm hyperparameters are changed. Evaluation uses 100
+episodes every 50k steps; checkpoints are saved every 100k steps.
 
-See [walkthrough 77](docs/walkthrough-77.md) for installation, settings, outputs,
-validation, four-versus-eight resource measurements and checkpoint behavior.
-**The policy uses EPyMARL n-step PPO while
-the mixer teacher uses GAE.** This remains a major experimental issue for a
-later controlled comparison. Stock COMA retains its shared recurrent actors
-and reward standardization; it is a separate algorithm baseline.
+Logs, commands, resource summaries, models and credit ledgers are under
+`results/shared_suite/`; Sacred metrics remain under `results/sacred/`.
+Use `--smoke` for short integration checks. See
+[walkthrough 78](docs/walkthrough-78.md) for exact tasks, reward units, validation
+and resume behavior. **The policy retains EPyMARL five-step PPO while the mixer
+teacher uses GAE; this remains a major experimental issue.**
+
+The earlier separate, feedforward comparison remains available through
+`./run_maca_comparison.sh --max-parallel 8`, `maca_baseline_ns` and
+`maca_mappo_ns`. Its settings and resource benchmarks are documented in
+[walkthrough 77](docs/walkthrough-77.md).
 
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)

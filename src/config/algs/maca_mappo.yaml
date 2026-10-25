@@ -1,0 +1,35 @@
+# Stock shared MAPPO settings, augmented with online random-donor MACA.
+action_selector: "soft_policies"
+mask_before_softmax: True
+runner: "parallel"
+buffer_size: 10
+batch_size_run: 10
+batch_size: 10
+target_update_interval_or_tau: 0.01
+lr: 0.0003
+hidden_dim: 128
+obs_agent_id: True
+obs_last_action: False
+obs_individual_obs: False
+agent_output_type: "pi_logits"
+learner: "maca_ppo_learner"
+entropy_coef: 0.001
+use_rnn: True
+standardise_returns: False
+standardise_rewards: True
+q_nstep: 5
+critic_type: "cv_critic"
+epochs: 4
+eps_clip: 0.2
+name: "maca_mappo"
+t_max: 20050000
+maca:
+  beta: 0.1
+  beta_threshold: -0.01
+  beta_ramp: 0.35
+  ppo_gae_lambda: 0.95  # Teacher only; policy retains EPyMARL five-step PPO.
+  n_samples: 16
+  fit_freq: 100
+  mixer_epochs: 20
+  warmup_episodes: 0
+  shape_wins: False

@@ -16,6 +16,7 @@ class MACAPPOLearner(PPOLearner):
             raise ValueError("MACA beta must be finite and nonnegative")
         self.adapter = None
         self.shaped_rewards = None
+        self._preparation_seconds = 0.0
         if beta > 0:
             from modules.maca_adapter import MACAAdapter
             self.adapter = MACAAdapter(args, scheme, self.critic, logger)
@@ -24,18 +25,29 @@ class MACAPPOLearner(PPOLearner):
         if self.adapter is None:
             return super().train(batch, t_env, episode_num)
         start = time.perf_counter()
-        self.shaped_rewards = self.adapter.prepare(batch, t_env)
-        prepared = time.perf_counter()
+        self._preparation_seconds = 0.0
+        self._t_env = t_env
         try:
             result = super().train(batch, t_env, episode_num)
         finally:
             self.shaped_rewards = None
-        self.logger.log_stat("maca/prepare_seconds", prepared - start, t_env)
-        self.logger.log_stat("maca/learner_seconds", time.perf_counter() - prepared, t_env)
+        self.logger.log_stat("maca/prepare_seconds", self._preparation_seconds, t_env)
+        self.logger.log_stat("maca/learner_seconds", time.perf_counter() - start - self._preparation_seconds, t_env)
         return result
 
     def train_critic_sequential(self, critic, target_critic, batch, rewards, mask):
-        if self.shaped_rewards is not None:
+        if self.adapter is not None:
+            if self.shaped_rewards is None:
+                # The base learner has updated environment-only reward moments once.
+                # Prepare here, before any critic update, and cache for all PPO epochs.
+                start = time.perf_counter()
+                if self.args.standardise_rewards:
+                    mean, std = self.rew_ms.mean, torch.sqrt(self.rew_ms.var)
+                    self.adapter.pipeline.frozen.set_reward_normalization(mean.item(), std.item())
+                self.shaped_rewards = self.adapter.prepare(batch, self._t_env)
+                if self.args.standardise_rewards:
+                    self.shaped_rewards = (self.shaped_rewards - mean) / std
+                self._preparation_seconds = time.perf_counter() - start
             rewards = self.shaped_rewards
         return super().train_critic_sequential(critic, target_critic, batch, rewards, mask)
 
@@ -46,6 +58,9 @@ class MACAPPOLearner(PPOLearner):
             "target_critic": self.target_critic.state_dict(),
             "critic_training_steps": self.critic_training_steps,
             "last_target_update_step": self.last_target_update_step,
+            "reward_normalization": {
+                "mean": self.rew_ms.mean, "var": self.rew_ms.var, "count": self.rew_ms.count,
+            } if self.args.standardise_rewards else None,
         }, Path(path) / "maca_state.th")
 
     def load_models(self, path):
@@ -59,3 +74,9 @@ class MACAPPOLearner(PPOLearner):
         self.target_critic.load_state_dict(state["target_critic"])
         self.critic_training_steps = state["critic_training_steps"]
         self.last_target_update_step = state["last_target_update_step"]
+        moments = state.get("reward_normalization")
+        if self.args.standardise_rewards:
+            if moments is None:
+                raise ValueError("Standardized MACA checkpoint is missing reward moments")
+            for name, value in moments.items():
+                setattr(self.rew_ms, name, value.to(self.rew_ms.mean.device) if torch.is_tensor(value) else value)

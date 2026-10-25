@@ -50,8 +50,8 @@ def state_from_observations(observations, config):
         if not (0 <= row < config.grid_size and 0 <= col < config.grid_size and level > 0):
             raise ValueError("MACA requires full-sight observations of every player")
         players.append({"position": [int(row), int(col)], "level": int(level)})
-    if len({tuple(p["position"]) for p in players}) != config.n_agents:
-        raise ValueError("Overlapping LBF players in reconstructed state")
+    # Native LBF can overlap players after a blocked movement chain. Preserve
+    # that observed board exactly; no-replay splice does not require a reset.
     state = {"food_grid": grid, "players": players}
     if not np.array_equal(np.asarray(observations_from_state(state, config)), obs):
         raise ValueError("Observation does not match native full-sight LBF ordering")
@@ -63,6 +63,19 @@ class EPyMARLScorer(FrozenPPOScorer):
 
     def __init__(self, critic, config):
         self.critic, self.config = critic, config
+        self.reward_mean, self.reward_std = 0.0, 1.0
+
+    def set_reward_normalization(self, mean, std):
+        """Freeze the policy's environment-reward transform for this batch."""
+        if not np.isfinite([mean, std]).all() or std <= 0:
+            raise ValueError("MACA needs finite reward moments and a positive standard deviation")
+        self.reward_mean, self.reward_std = float(mean), float(std)
+
+    def advantage_score(self, states, team_rewards, bootstrap_state=None):
+        if team_rewards is None:
+            raise ValueError("MACA teacher requires the environment reward sequence")
+        rewards = (np.asarray(team_rewards, dtype=np.float64) - self.reward_mean) / self.reward_std
+        return super().advantage_score(states, rewards, bootstrap_state=bootstrap_state)
 
     def values(self, states):
         observations = np.asarray([
@@ -85,12 +98,12 @@ class MACAAdapter:
     def __init__(self, args, scheme, critic, logger):
         if not args.common_reward or args.reward_scalarisation != "sum":
             raise ValueError("MACA requires common_reward=True and reward_scalarisation=sum")
-        if args.standardise_rewards or args.standardise_returns:
-            raise ValueError("MACA requires unstandardized rewards and returns; use the matched baseline config")
-        if (args.critic_type != "cv_critic_ns" or args.mac != "non_shared_mac"
-                or args.use_rnn or args.obs_last_action or args.obs_individual_obs
-                or args.obs_agent_id):
-            raise ValueError("This MACA adapter supports the supplied feedforward mappo_ns configuration")
+        if args.standardise_returns:
+            raise ValueError("MACA currently requires standardise_returns=False")
+        if (args.critic_type not in {"cv_critic", "cv_critic_ns"}
+                or args.mac not in {"basic_mac", "non_shared_mac"}
+                or args.obs_last_action or args.obs_individual_obs):
+            raise ValueError("MACA supports state-only centralized MAPPO critics and basic/non-shared actors")
         if args.env != "gymma" or args.env_args.get("pretrained_wrapper"):
             raise ValueError("MACA currently supports native full-sight LBF through gymma")
         if not (args.buffer_size == args.batch_size == args.batch_size_run):
@@ -99,9 +112,9 @@ class MACAAdapter:
         if set(args.env_args) - allowed_env:
             raise ValueError("Additional environment constructor settings are not supported by the MACA donor bank")
         key = args.env_args["key"]
-        match = re.fullmatch(r"(?:lbforaging:)?Foraging-(\d+)x(\d+)-(\d+)p-(\d+)f-coop-v3", key)
+        match = re.fullmatch(r"(?:lbforaging:)?Foraging-(\d+)x(\d+)-(\d+)p-(\d+)f(?:-coop)?-v3", key)
         if match is None or match[1] != match[2]:
-            raise ValueError("MACA currently requires a square native Foraging-...-coop-v3 task")
+            raise ValueError("MACA currently requires a square full-sight native Foraging v3 task")
         self.config = c = MACAConfig.from_env_name(key)
         c.seed, c.gamma = args.seed, args.gamma
         c.max_ep_len = int(args.env_args["time_limit"])
@@ -135,7 +148,8 @@ class MACAAdapter:
         c.baseline_mode, c.beta_mode, c.r_int_injection = "multi_sample", "dynamic", "uniform"
         c.online_critic_score = c.mean_advantage_score = c.gae_advantage_score = True
         c.negate_mean_advantage_score = c.occupancy_goal_input = True
-        c.centralized_critic, c.shared_critic = True, False
+        c.centralized_critic, c.shared_critic = True, args.critic_type == "cv_critic"
+        self.standardise_rewards = args.standardise_rewards
         self.output = Path(args.local_results_path) / "maca" / args.unique_token
         self.output.mkdir(parents=True, exist_ok=True)
         c.random_donor_bank = str(self.output / "random_donors.json")
@@ -200,7 +214,11 @@ class MACAAdapter:
             versions[name] = importlib.metadata.version(name)
         manifest = {
             "variant": "online_random_donor_splice", "policy_advantages": "epymarl_nstep",
-            "teacher_score": "negative_mean_unstandardized_gae", "python": sys.version,
+            "teacher_score": "negative_mean_gae_without_advantage_standardization",
+            "teacher_reward_units": "standardized_environment_rewards" if args.standardise_rewards else "raw_environment_rewards",
+            "policy_shaping": "add_individual_credit_in_raw_units_then_apply_environment_reward_transform",
+            "reward_moments_source": "environment_rewards_only_once_per_ppo_batch",
+            "python": sys.version,
             "git_commit": git("rev-parse", "HEAD"), "git_status": git("status", "--porcelain"),
             "versions": versions, "device": args.device, "config": vars(args),
             "maca_config": vars(self.config),
@@ -254,6 +272,8 @@ class MACAAdapter:
                     t_env=t_env, episode_length=length, env_return=env_return,
                     running_return=running_avg, effective_weight=weight,
                     applied_credit=(np.asarray(credit) * weight).tolist(),
+                    reward_mean=self.pipeline.frozen.reward_mean,
+                    reward_std=self.pipeline.frozen.reward_std,
                 )
                 ledgers.append(ledger)
                 self.episodes += 1
@@ -279,6 +299,8 @@ class MACAAdapter:
         excluded = {"config", "frozen", "encoder", "reducer", "density", "shaper", "buffer"}
         return copy.deepcopy({
             "version": 1,
+            "standardise_rewards": self.standardise_rewards,
+            "reward_moments": (self.pipeline.frozen.reward_mean, self.pipeline.frozen.reward_std),
             "config": {k: v for k, v in vars(self.config).items() if k != "random_donor_bank"},
             "episodes": self.episodes, "returns": list(self.returns), "rng": self.rng,
             "pipeline": {k: v for k, v in vars(self.pipeline).items() if k not in excluded},
@@ -289,7 +311,8 @@ class MACAAdapter:
 
     def load_state_dict(self, state):
         expected = {k: v for k, v in vars(self.config).items() if k != "random_donor_bank"}
-        if state["version"] != 1 or state["config"] != expected:
+        if (state["version"] != 1 or state["config"] != expected
+                or state.get("standardise_rewards", False) != self.standardise_rewards):
             raise ValueError("MACA checkpoint configuration does not match this run")
         state = copy.deepcopy(state)
         self.episodes, self.rng = state["episodes"], state["rng"]
@@ -300,3 +323,4 @@ class MACAAdapter:
         self.pipeline.density.__dict__.update(state["density"])
         self.pipeline.reducer.net.load_state_dict(state["mixer"])
         self.pipeline.reducer._generator.set_state(state["mixer_rng"])
+        self.pipeline.frozen.set_reward_normalization(*state.get("reward_moments", (0.0, 1.0)))
