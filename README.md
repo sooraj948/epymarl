@@ -15,16 +15,17 @@ wrapper selects `../.TPCA/bin/python`, or `MACA_PYTHON` if set. Dependencies are
 in [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is tested.
 
 The suite runs these full-sight, 50-step LBF tasks **sequentially**, each with
-up to eight simultaneous CPU trainers:
+up to four simultaneous CPU trainers:
 
 | Task | Steps per run | Jobs |
 | --- | ---: | ---: |
 | 8x8, 2 players, 2 foods, forced cooperation | 2M | 19 |
-| 8x8, 3 players, 2 foods, standard cooperation | 2M | 20 |
-| 10x10, 3 players, 3 foods, standard cooperation | 4M | 20 |
+| 8x8, 3 players, 2 foods, standard cooperation | 2M | 8 |
+| 10x10, 3 players, 3 foods, standard cooperation | 4M | 8 |
 
-Every task includes stock `mappo`, stock `coma`, and `maca_mappo` at beta 0.08,
-0.1 and 0.15 using no-replay splice. Seeds are **1587, 2398, 2875 and 3370**;
+Every task includes stock `mappo` and stock `coma`. Only the first task also
+includes `maca_mappo` at beta 0.08, 0.1 and 0.15 using no-replay splice.
+The suite has 35 jobs. Seeds are **1587, 2398, 2875 and 3370**;
 only the first task's vanilla MAPPO omits 1587 because its historical completed
 result already exists. Beta retains MACA's existing dynamic schedule. No
 task-specific algorithm hyperparameters are changed. Evaluation uses 100
@@ -33,8 +34,11 @@ episodes every 50k steps; checkpoints are saved every 100k steps.
 Logs, commands, resource summaries, models and credit ledgers are under
 `results/shared_suite/`; Sacred metrics remain under `results/sacred/`.
 Use `--smoke` for short integration checks. See
-[walkthrough 78](docs/walkthrough-78.md) for exact tasks, reward units, validation
-and resume behavior. **The policy retains EPyMARL five-step PPO while the mixer
+[walkthrough 79](docs/walkthrough-79.md) for the current scope and seeding audit,
+and [walkthrough 78](docs/walkthrough-78.md) for reward units and resume behavior.
+The entrypoint reuses the original MACA `set_seeds()` helper unchanged. Run
+`../.TPCA/bin/python scripts/check_reproducibility.py` to compare fresh-process
+rollouts and learner states at identical seeds. **The policy retains EPyMARL five-step PPO while the mixer
 teacher uses GAE; this remains a major experimental issue.**
 
 The earlier separate, feedforward comparison remains available through

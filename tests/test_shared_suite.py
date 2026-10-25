@@ -12,8 +12,8 @@ import run_shared_suite as suite
 def test_full_suite_protocol(tmp_path):
     args = suite.parse_args([])
     stages = suite.stages_for(args, tmp_path)
-    assert args.max_parallel == 8
-    assert [len(stage["jobs"]) for stage in stages] == [19, 20, 20]
+    assert args.max_parallel == 4
+    assert [len(stage["jobs"]) for stage in stages] == [19, 8, 8]
     for index, stage in enumerate(stages):
         assert ("-coop-" in stage["environment"]) == (index == 0)
         for job in stage["jobs"]:
@@ -31,9 +31,10 @@ def test_full_suite_protocol(tmp_path):
                 assert "--config=coma" in job.command
                 assert not any(s.startswith("maca.") for s in job.command)
             else:
+                assert index == 0
                 assert "--config=maca_mappo" in job.command
                 assert any(f"maca.beta={beta}" in job.command for beta in suite.BETAS)
-    assert sum(job.budget_steps for stage in stages for job in stage["jobs"]) == 158_000_000
+    assert sum(job.budget_steps for stage in stages for job in stage["jobs"]) == 86_000_000
     # Each beta has its own method name, preventing seed-log collisions.
     for stage in stages:
         keys = [(job.method, job.seed) for job in stage["jobs"]]
@@ -42,13 +43,13 @@ def test_full_suite_protocol(tmp_path):
 
 def test_smoke_and_seed_selection(tmp_path):
     stages = suite.stages_for(suite.parse_args(["--smoke"]), tmp_path)
-    assert [len(s["jobs"]) for s in stages] == [5, 5, 5]
+    assert [len(s["jobs"]) for s in stages] == [5, 2, 2]
     for stage in stages:
         for job in stage["jobs"]:
             assert job.seed == 1587 and job.budget_steps == 6000
             assert "save_model=False" in job.command
     selected = suite.stages_for(suite.parse_args(["--seeds", "2398", "3370"]), tmp_path)
-    assert [len(s["jobs"]) for s in selected] == [10, 10, 10]
+    assert [len(s["jobs"]) for s in selected] == [10, 4, 4]
 
 
 def test_task_registration_and_native_observations():
@@ -63,7 +64,7 @@ def test_stages_run_sequentially_and_completed_resume(tmp_path, monkeypatch):
         calls.append(Path(output).name)
         Path(output).mkdir()
         (Path(output) / "summary.json").write_text(json.dumps({"status": "completed"}))
-        assert parallel == 8
+        assert parallel == 4
     monkeypatch.setattr(suite, "run_pool", fake_pool)
     assert suite.main([]) == 0
     assert calls == [task[0] for task in suite.TASKS]

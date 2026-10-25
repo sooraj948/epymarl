@@ -1,5 +1,7 @@
 # Walkthrough 78 Shared MAPPO MACA and stock COMA suite
 
+The experiment scope and seeding setup below describe the initial implementation. [Walkthrough 79](walkthrough-79.md) supersedes the matrix and concurrency: MACA only on the first task, no MACA on either larger task, four simultaneous trainers, and the original MACA seed helper reused unchanged.
+
 ## Major design choices
 
 1. **Anchor MACA to the successful stock shared MAPPO.** Vanilla uses the existing `mappo.yaml`. New `maca_mappo.yaml` matches every algorithm setting except learner/name and adds the existing MACA options. Both use shared recurrent actors, hidden size 128, an agent-conditioned shared centralized critic, entropy coefficient 0.001, reward standardization, soft target updates at 0.01, and five-step PPO. No advantage standardization is added. Stock COMA keeps every algorithm setting in `coma.yaml`.
@@ -21,7 +23,7 @@ All environments expose native flat full-sight observations. Each task runs vani
 
 The first task's 2M budget matches the successful historical run, recorded under `/scratch/cluster/sooraj/epymarl/results/sacred/mappo/lbforaging:Foraging-8x8-2p-2f-coop-v3/2/`. Its original seed-1587 results are retained in place rather than copied or rerun. Historical CUDA/Python/PyTorch settings differ from the current CPU/Python-3.10 runtime; learning curves across those runtimes are not bitwise reproducibility checks.
 
-Common launch settings are CPU, summed team environment reward, ten fresh episodes per update, 100 greedy evaluation episodes every 50k training steps, diagnostic logging every 10k steps, and checkpoints every 100k steps. The pool caps the number of trainers at eight; each trainer starts ten environment workers. Thread-count environment variables remain one per trainer as in the existing resource-tested launcher.
+Common launch settings are CPU, summed team environment reward, ten fresh episodes per update, 100 evaluation episodes every 50k training steps, diagnostic logging every 10k steps, and checkpoints every 100k steps. The pool initially capped the number of trainers at eight; each trainer starts ten environment workers. Thread-count environment variables remain one per trainer as in the existing resource-tested launcher. Despite `test_greedy=True`, the prescribed `soft_policies` selector samples actions during evaluation; the earlier description of evaluation as greedy was incorrect. The selector is unchanged.
 
 ## Reward handling and shared critic
 

@@ -18,6 +18,7 @@ import torch as th
 
 from utils.logging import get_logger
 from run import run
+from maca.utils import set_seeds
 
 SETTINGS["CAPTURE_MODE"] = (
     "fd"  # set to "no" if you want to see stdout/stderr in console
@@ -36,8 +37,8 @@ results_path = os.path.join(dirname(dirname(abspath(__file__))), "results")
 def my_main(_run, _config, _log):
     # Setting the random seed throughout the modules
     config = config_copy(_config)
-    np.random.seed(config["seed"])
-    th.manual_seed(config["seed"])
+    # Reuse the original MACA seed helper, including its determinism settings.
+    set_seeds(config["seed"])
     config["env_args"]["seed"] = config["seed"]
 
     # run the framework

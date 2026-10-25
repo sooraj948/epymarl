@@ -25,7 +25,7 @@ TASKS = (
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--max-parallel", type=int, default=8)
+    parser.add_argument("--max-parallel", type=int, default=4)
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true",
@@ -51,7 +51,8 @@ def stages_for(args, output):
     seeds = args.seeds[:1] if args.smoke else args.seeds
     for index, (task, environment, budget) in enumerate(TASKS):
         variants = [("mappo", "mappo", None), ("coma", "coma", None)]
-        variants += [("maca_beta_" + str(beta).replace(".", "p"), "maca_mappo", beta) for beta in BETAS]
+        if index == 0:
+            variants += [("maca_beta_" + str(beta).replace(".", "p"), "maca_mappo", beta) for beta in BETAS]
         jobs = []
         for method, config, beta in variants:
             for seed in seeds:
