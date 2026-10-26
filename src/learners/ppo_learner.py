@@ -49,8 +49,7 @@ class PPOLearner:
         actions = actions[:, :-1]
 
         if self.args.standardise_rewards:
-            self.rew_ms.update(rewards)
-            rewards = (rewards - self.rew_ms.mean) / th.sqrt(self.rew_ms.var)
+            rewards = self._standardise_rewards(rewards)
 
         if self.args.common_reward:
             assert (
@@ -158,6 +157,11 @@ class PPOLearner:
                 t_env,
             )
             self.log_stats_t = t_env
+
+    def _standardise_rewards(self, rewards):
+        """Default EPyMARL normalization; MACA may defer this until after shaping."""
+        self.rew_ms.update(rewards)
+        return (rewards - self.rew_ms.mean) / th.sqrt(self.rew_ms.var)
 
     def train_critic_sequential(self, critic, target_critic, batch, rewards, mask):
         # Optimise critic

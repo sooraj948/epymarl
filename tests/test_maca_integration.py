@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 torch.set_num_threads(1)
 
 
-def arguments(tmp_path, beta=0.1, token="test", shared=False):
+def arguments(tmp_path, beta=0.1, token="test", shared=False, normalization="environment"):
     config = {}
     for name in ("default.yaml", "envs/gymma.yaml", "algs/maca_mappo_ns.yaml"):
         config.update(yaml.safe_load((ROOT / "src/config" / name).read_text()))
@@ -36,6 +36,7 @@ def arguments(tmp_path, beta=0.1, token="test", shared=False):
     config["env_args"]["time_limit"] = 4
     config["env_args"]["seed"] = config["seed"]
     config["maca"].update(beta=beta, fit_freq=1, mixer_epochs=1, n_samples=2)
+    config["maca"]["reward_standardization"] = normalization
     if shared:
         config.update(yaml.safe_load((ROOT / "src/config/algs/mappo.yaml").read_text()))
         config.update(mac="basic_mac", agent="rnn")
@@ -140,9 +141,9 @@ def test_signed_uniform_rewards_padding_and_rng_isolation(tmp_path, monkeypatch)
     assert adapter.episodes == 2
 
 
-@pytest.mark.parametrize("shared", [False, True])
-def test_beta_zero_matches_baseline_parameters_and_updates(tmp_path, shared):
-    args = arguments(tmp_path, beta=0, shared=shared)
+@pytest.mark.parametrize("shared,normalization", [(False, "environment"), (True, "environment"), (True, "shaped")])
+def test_beta_zero_matches_baseline_parameters_and_updates(tmp_path, shared, normalization):
+    args = arguments(tmp_path, beta=0, shared=shared, normalization=normalization)
     batch = rollout_batch(args)
     torch.manual_seed(10)
     baseline = learner(args, batch, PPOLearner)
@@ -323,3 +324,95 @@ def test_native_three_player_blocked_chain_observation_roundtrip():
         np.testing.assert_array_equal(observations_from_state(state, config), observations)
     finally:
         env.close()
+
+
+def test_post_shaping_pooled_moments_teacher_lag_and_checkpoint(tmp_path, monkeypatch):
+    args = arguments(tmp_path, shared=True, normalization="shaped")
+    batch = rollout_batch(args)
+    batch["reward"][1, 3, 0] = .5
+    original_rewards = batch["reward"].clone()
+    model = learner(args, batch)
+    model.rew_ms.update(torch.tensor([[0.], [.2], [.4]]))
+    previous = copy.deepcopy(model.rew_ms)
+    old_mean, old_std = previous.mean.item(), previous.var.sqrt().item()
+    before_values = model.critic(batch).detach()[:, :, :, 0].mean(-1).numpy()
+    scores, captured = [], []
+    def signed_credit(ep, trajectories, states, final_state, env_return, running_avg,
+                      env, snapshot, initial_obs, agents, team_rewards):
+        # No environment-only update occurred before the shaping callback.
+        assert model.rew_ms.count == previous.count
+        torch.testing.assert_close(model.rew_ms.mean, previous.mean, rtol=0, atol=0)
+        scores.append(model.adapter.pipeline.frozen.advantage_score(states, team_rewards))
+        return np.array([1., -1.]), {"scored": True}
+    monkeypatch.setattr(model.adapter.pipeline, "process", signed_credit)
+    original_train = PPOLearner.train_critic_sequential
+    def record(self, critic, target_critic, batch, rewards, mask):
+        captured.append(rewards.detach().clone())
+        return original_train(self, critic, target_critic, batch, rewards, mask)
+    monkeypatch.setattr(PPOLearner, "train_critic_sequential", record)
+    policy_rng = rng_snapshot()
+    model.train(batch, 8, 0)
+    assert_rng_equal(policy_rng, rng_snapshot())
+    assert torch.equal(batch["reward"], original_rewards)
+    raw_shaped = original_rewards[:, :-1].expand(-1, -1, 2).clone()
+    valid = torch.zeros_like(raw_shaped, dtype=torch.bool)
+    for b, length in enumerate((2, 4)):
+        weight = model.adapter.last_ledgers[b]["effective_weight"]
+        raw_shaped[b, :length] += torch.tensor([weight, -weight]) / length
+        valid[b, :length] = True
+        rewards = (original_rewards[b, :length, 0].numpy() - old_mean) / old_std
+        gae, advantages = 0., []
+        for t in reversed(range(length)):
+            next_value = before_values[b, t + 1] if t + 1 < length else 0.
+            gae = rewards[t] + args.gamma * next_value - before_values[b, t] + args.gamma * .95 * gae
+            advantages.append(gae)
+        assert scores[b] == pytest.approx(-np.mean(advantages), abs=1e-6)
+    expected = copy.deepcopy(previous)
+    expected.update(raw_shaped[valid].reshape(-1, 1))
+    assert model.rew_ms.mean.shape == (1,)  # One normalizer shared by both agents.
+    assert model.rew_ms.count == pytest.approx(previous.count + 12)
+    torch.testing.assert_close(model.rew_ms.mean, expected.mean)
+    torch.testing.assert_close(model.rew_ms.var, expected.var)
+    assert model.adapter.pipeline.frozen.reward_mean == pytest.approx(old_mean)
+    assert model.adapter.pipeline.frozen.reward_std == pytest.approx(old_std)
+    assert len(captured) == args.epochs
+    for rewards in captured:
+        torch.testing.assert_close(rewards, (raw_shaped - expected.mean) / expected.var.sqrt())
+    assert not torch.equal(captured[0][:, :, 0], captured[0][:, :, 1])
+    assert model.shaped_rewards is None
+    monkeypatch.undo()
+    checkpoint = tmp_path / "post_checkpoint"
+    checkpoint.mkdir()
+    model.save_models(checkpoint)
+    restored = learner(arguments(tmp_path, token="restored_post", shared=True, normalization="shaped"), batch)
+    restored.load_models(checkpoint)
+    torch.testing.assert_close(restored.rew_ms.mean, model.rew_ms.mean, rtol=0, atol=0)
+    torch.testing.assert_close(restored.rew_ms.var, model.rew_ms.var, rtol=0, atol=0)
+    assert restored.rew_ms.count == model.rew_ms.count
+    assert restored.adapter.pipeline.frozen.reward_mean == old_mean
+    assert restored.adapter.pipeline.frozen.reward_std == old_std
+    # Given the next fixed rollout batch, the restored learner must make the
+    # exact same next update, including the newly accumulated shaped moments.
+    model.train(batch, 16, 2)
+    restored.train(batch, 16, 2)
+    for left, right in zip(model.mac.parameters(), restored.mac.parameters()):
+        torch.testing.assert_close(left, right, rtol=0, atol=0)
+    for left, right in zip(model.critic.parameters(), restored.critic.parameters()):
+        torch.testing.assert_close(left, right, rtol=0, atol=0)
+    torch.testing.assert_close(restored.rew_ms.mean, model.rew_ms.mean, rtol=0, atol=0)
+    torch.testing.assert_close(restored.rew_ms.var, model.rew_ms.var, rtol=0, atol=0)
+    assert restored.rew_ms.count == model.rew_ms.count
+    env_mode = learner(arguments(tmp_path, token="wrong_mode", shared=True), batch)
+    with pytest.raises(ValueError, match="standardization mode"):
+        env_mode.load_models(checkpoint)
+
+
+def test_invalid_normalization_modes_are_rejected(tmp_path):
+    args = arguments(tmp_path, shared=True, normalization="unknown")
+    batch = rollout_batch(args)
+    with pytest.raises(ValueError, match="environment or shaped"):
+        learner(args, batch)
+    args.maca["reward_standardization"] = "shaped"
+    args.standardise_rewards = False
+    with pytest.raises(ValueError, match="requires standardise_rewards=True"):
+        learner(args, batch)

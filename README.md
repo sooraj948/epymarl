@@ -20,6 +20,14 @@ seeds, 4M steps per run, with at most eight concurrent jobs. It opens a
 `maca-10x10` window in the existing session. See
 [walkthrough 81](docs/walkthrough-81.md) for settings and commands.
 
+To estimate shared reward statistics **after shaping**, run
+`./run_maca_10x10_shaped_norm.sh --tmux`. It selects betas 0.08 and 0.1, four
+seeds, 4M steps per run and eight concurrent trainers. The option is
+`maca.reward_standardization=shaped`; `environment` retains the previous default.
+One running mean/std is fitted to all agents' valid shaped rewards per batch.
+[Walkthrough 82](docs/walkthrough-82.md) explains the two modes and teacher timing
+and consolidates walkthroughs 78–82.
+
 The suite runs these full-sight, 50-step LBF tasks **sequentially**, each with
 up to eight simultaneous CPU trainers:
 

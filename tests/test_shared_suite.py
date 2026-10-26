@@ -89,6 +89,29 @@ def test_tmux_forwards_task_and_method_selection(tmp_path, monkeypatch):
     assert "--tasks 10x10_3p3f --methods maca" in command[-1]
 
 
+def test_post_shaping_beta_sweep_and_tmux_forwarding(tmp_path, monkeypatch):
+    args = suite.parse_args(["--tasks", "10x10_3p3f", "--methods", "maca", "--betas", "0.08", "0.1",
+                             "--maca-reward-standardization", "shaped", "--tmux"])
+    stages = suite.stages_for(args, tmp_path)
+    assert len(stages) == 1 and len(stages[0]["jobs"]) == 8
+    assert {job.method for job in stages[0]["jobs"]} == {"maca_beta_0p08_shaped_norm", "maca_beta_0p1_shaped_norm"}
+    for job in stages[0]["jobs"]:
+        assert job.budget_steps == 4_000_000
+        assert "maca.reward_standardization=shaped" in job.command
+        assert any(f"maca.beta={beta}" in job.command for beta in (.08, .1))
+    calls = []
+    monkeypatch.setattr(suite, "ROOT", tmp_path)
+    monkeypatch.setattr(suite.subprocess, "run", lambda *a, **kw: None)
+    def capture(command, **kwargs):
+        calls.append(command)
+        return "@43\n"
+    monkeypatch.setattr(suite.subprocess, "check_output", capture)
+    assert suite.launch_tmux(args) == 0
+    command = calls[0]
+    assert command[command.index("-n") + 1] == "maca-10x10-shaped-norm"
+    assert "--betas 0.08 0.1 --maca-reward-standardization shaped" in command[-1]
+
+
 def test_stages_run_sequentially_and_completed_resume(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(suite, "preflight", lambda: None)
@@ -108,7 +131,8 @@ def test_stages_run_sequentially_and_completed_resume(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("args", [["--max-parallel", "0"], ["--seeds", "1", "1"],
-                                  ["--tmux", "--dry-run"]])
+                                  ["--tmux", "--dry-run"], ["--betas", "nan"],
+                                  ["--betas", "0.1", "0.1"], ["--betas", "-0.1"]])
 def test_bad_arguments(args):
     with pytest.raises(SystemExit):
         suite.parse_args(args)

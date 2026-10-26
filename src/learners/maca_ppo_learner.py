@@ -11,6 +11,11 @@ from .ppo_learner import PPOLearner
 class MACAPPOLearner(PPOLearner):
     def __init__(self, mac, scheme, logger, args):
         super().__init__(mac, scheme, logger, args)
+        self.reward_standardization = args.maca.get("reward_standardization", "environment")
+        if self.reward_standardization not in {"environment", "shaped"}:
+            raise ValueError("MACA reward_standardization must be environment or shaped")
+        if self.reward_standardization == "shaped" and not args.standardise_rewards:
+            raise ValueError("Shaped reward standardization requires standardise_rewards=True")
         beta = args.maca["beta"]
         if beta < 0 or not torch.isfinite(torch.tensor(beta)):
             raise ValueError("MACA beta must be finite and nonnegative")
@@ -35,17 +40,32 @@ class MACAPPOLearner(PPOLearner):
         self.logger.log_stat("maca/learner_seconds", time.perf_counter() - start - self._preparation_seconds, t_env)
         return result
 
+    def _standardise_rewards(self, rewards):
+        if self.adapter is not None and self.reward_standardization == "shaped":
+            # These moments must be estimated from shaped rewards, not updated
+            # a second time with environment rewards by the base learner.
+            return rewards
+        return super()._standardise_rewards(rewards)
+
     def train_critic_sequential(self, critic, target_critic, batch, rewards, mask):
         if self.adapter is not None:
             if self.shaped_rewards is None:
-                # The base learner has updated environment-only reward moments once.
-                # Prepare here, before any critic update, and cache for all PPO epochs.
+                # Environment mode uses the base learner's current moments.
+                # Shaped mode freezes previous moments for teacher scoring:
+                # current moments cannot be known until credit is computed.
                 start = time.perf_counter()
                 if self.args.standardise_rewards:
                     mean, std = self.rew_ms.mean, torch.sqrt(self.rew_ms.var)
                     self.adapter.pipeline.frozen.set_reward_normalization(mean.item(), std.item())
                 self.shaped_rewards = self.adapter.prepare(batch, self._t_env)
                 if self.args.standardise_rewards:
+                    if self.reward_standardization == "shaped":
+                        samples = self.shaped_rewards[mask.bool()].reshape(-1, 1)
+                        self.rew_ms.update(samples)
+                        mean, std = self.rew_ms.mean, torch.sqrt(self.rew_ms.var)
+                        self.logger.log_stat("maca/policy_reward_mean", mean.item(), self._t_env)
+                        self.logger.log_stat("maca/policy_reward_std", std.item(), self._t_env)
+                        self.logger.log_stat("maca/normalization_samples", samples.numel(), self._t_env)
                     self.shaped_rewards = (self.shaped_rewards - mean) / std
                 self._preparation_seconds = time.perf_counter() - start
             rewards = self.shaped_rewards
@@ -55,6 +75,7 @@ class MACAPPOLearner(PPOLearner):
         super().save_models(path)
         torch.save({
             "adapter": self.adapter.state_dict() if self.adapter is not None else None,
+            "reward_standardization": self.reward_standardization,
             "target_critic": self.target_critic.state_dict(),
             "critic_training_steps": self.critic_training_steps,
             "last_target_update_step": self.last_target_update_step,
@@ -67,6 +88,8 @@ class MACAPPOLearner(PPOLearner):
         super().load_models(path)
         self.old_mac.load_state(self.mac)
         state = torch.load(Path(path) / "maca_state.th", map_location="cpu", weights_only=False)
+        if state.get("reward_standardization", "environment") != self.reward_standardization:
+            raise ValueError("MACA checkpoint reward standardization mode does not match this run")
         if (state["adapter"] is None) != (self.adapter is None):
             raise ValueError("MACA checkpoint beta mode does not match this run")
         if self.adapter is not None:

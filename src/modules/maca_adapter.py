@@ -66,7 +66,7 @@ class EPyMARLScorer(FrozenPPOScorer):
         self.reward_mean, self.reward_std = 0.0, 1.0
 
     def set_reward_normalization(self, mean, std):
-        """Freeze the policy's environment-reward transform for this batch."""
+        """Freeze the teacher reward transform for this batch."""
         if not np.isfinite([mean, std]).all() or std <= 0:
             raise ValueError("MACA needs finite reward moments and a positive standard deviation")
         self.reward_mean, self.reward_std = float(mean), float(std)
@@ -127,11 +127,13 @@ class MACAAdapter:
             "beta", "beta_threshold", "beta_ramp", "fit_freq", "mixer_epochs",
             "mixer_batch_size", "n_samples", "buffer_capacity", "warmup_episodes",
             "shape_wins", "ppo_gae_lambda",
+            "reward_standardization",
         }
         if set(args.maca) - allowed:
             raise ValueError(f"Unknown MACA settings: {sorted(set(args.maca) - allowed)}")
         for name, value in args.maca.items():
-            setattr(c, name, value)
+            if name != "reward_standardization":
+                setattr(c, name, value)
         c.shape_wins = bool(args.maca.get("shape_wins", False))
         for name in ("fit_freq", "mixer_epochs", "mixer_batch_size", "n_samples", "buffer_capacity"):
             value = getattr(c, name)
@@ -150,6 +152,7 @@ class MACAAdapter:
         c.negate_mean_advantage_score = c.occupancy_goal_input = True
         c.centralized_critic, c.shared_critic = True, args.critic_type == "cv_critic"
         self.standardise_rewards = args.standardise_rewards
+        self.reward_standardization = args.maca.get("reward_standardization", "environment")
         self.output = Path(args.local_results_path) / "maca" / args.unique_token
         self.output.mkdir(parents=True, exist_ok=True)
         c.random_donor_bank = str(self.output / "random_donors.json")
@@ -215,9 +218,16 @@ class MACAAdapter:
         manifest = {
             "variant": "online_random_donor_splice", "policy_advantages": "epymarl_nstep",
             "teacher_score": "negative_mean_gae_without_advantage_standardization",
-            "teacher_reward_units": "standardized_environment_rewards" if args.standardise_rewards else "raw_environment_rewards",
-            "policy_shaping": "add_individual_credit_in_raw_units_then_apply_environment_reward_transform",
-            "reward_moments_source": "environment_rewards_only_once_per_ppo_batch",
+            "teacher_reward_units": (
+                "environment_rewards_in_previous_shaped_reward_units" if self.reward_standardization == "shaped"
+                else "standardized_environment_rewards" if args.standardise_rewards else "raw_environment_rewards"),
+            "teacher_moments_timing": "previous_batch" if self.reward_standardization == "shaped" else "current_batch",
+            "policy_shaping": (
+                "raw_individual_credit_then_pooled_shaped_reward_transform" if self.reward_standardization == "shaped"
+                else "add_individual_credit_in_raw_units_then_apply_environment_reward_transform"),
+            "reward_moments_source": (
+                "shaped_rewards_pooled_over_agents_and_valid_transitions_once_per_ppo_batch"
+                if self.reward_standardization == "shaped" else "environment_rewards_only_once_per_ppo_batch"),
             "python": sys.version,
             "git_commit": git("rev-parse", "HEAD"), "git_status": git("status", "--porcelain"),
             "versions": versions, "device": args.device, "config": vars(args),
@@ -300,6 +310,7 @@ class MACAAdapter:
         return copy.deepcopy({
             "version": 1,
             "standardise_rewards": self.standardise_rewards,
+            "reward_standardization": self.reward_standardization,
             "reward_moments": (self.pipeline.frozen.reward_mean, self.pipeline.frozen.reward_std),
             "config": {k: v for k, v in vars(self.config).items() if k != "random_donor_bank"},
             "episodes": self.episodes, "returns": list(self.returns), "rng": self.rng,
@@ -312,7 +323,8 @@ class MACAAdapter:
     def load_state_dict(self, state):
         expected = {k: v for k, v in vars(self.config).items() if k != "random_donor_bank"}
         if (state["version"] != 1 or state["config"] != expected
-                or state.get("standardise_rewards", False) != self.standardise_rewards):
+                or state.get("standardise_rewards", False) != self.standardise_rewards
+                or state.get("reward_standardization", "environment") != self.reward_standardization):
             raise ValueError("MACA checkpoint configuration does not match this run")
         state = copy.deepcopy(state)
         self.episodes, self.rng = state["episodes"], state["rng"]

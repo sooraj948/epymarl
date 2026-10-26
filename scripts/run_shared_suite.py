@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -31,6 +32,9 @@ def parse_args(argv=None):
                         help="Select task groups; defaults to all three")
     parser.add_argument("--methods", nargs="+", choices=["mappo", "coma", "maca"],
                         help="Explicit methods on selected tasks; maca includes all three betas")
+    parser.add_argument("--betas", type=float, nargs="+", default=list(BETAS))
+    parser.add_argument("--maca-reward-standardization", choices=["environment", "shaped"], default="environment",
+                        help="Estimate MACA reward moments from environment rewards or pooled shaped rewards")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true",
                         help="6,000 steps per variant/task, one seed, ten evaluation episodes, no checkpoints")
@@ -42,6 +46,8 @@ def parse_args(argv=None):
         parser.error("Use positive parallelism and distinct seeds in [0, 2**32)")
     if args.dry_run and args.tmux:
         parser.error("Use --dry-run separately from --tmux")
+    if len(set(args.betas)) != len(args.betas) or any(not math.isfinite(beta) or beta < 0 for beta in args.betas):
+        parser.error("Use distinct finite nonnegative betas")
     if args.resume:
         args.resume = args.resume.resolve()
         if not (args.resume / "commands.json").is_file():
@@ -58,7 +64,8 @@ def stages_for(args, output):
             continue
         variants = [("mappo", "mappo", None), ("coma", "coma", None)]
         if index == 0 or (args.methods and "maca" in args.methods):
-            variants += [("maca_beta_" + str(beta).replace(".", "p"), "maca_mappo", beta) for beta in BETAS]
+            suffix = "_shaped_norm" if args.maca_reward_standardization == "shaped" else ""
+            variants += [("maca_beta_" + str(beta).replace(".", "p") + suffix, "maca_mappo", beta) for beta in args.betas]
         if args.methods:
             variants = [variant for variant in variants if
                         ("maca" if variant[2] is not None else variant[0]) in args.methods]
@@ -83,6 +90,8 @@ def stages_for(args, output):
                 }
                 if beta is not None:
                     settings["maca.beta"] = beta
+                    if args.maca_reward_standardization != "environment":
+                        settings["maca.reward_standardization"] = args.maca_reward_standardization
                 command = [sys.executable, "-u", str(ROOT / "src/main.py"),
                            f"--config={config}", "--env-config=gymma", "with"]
                 command += [f"{key}={value}" for key, value in settings.items()]
@@ -126,6 +135,8 @@ def launch_tmux(args):
         forwarded += ["--tasks", *args.tasks]
     if args.methods:
         forwarded += ["--methods", *args.methods]
+    forwarded += ["--betas", *map(str, args.betas),
+                  "--maca-reward-standardization", args.maca_reward_standardization]
     launch_dir = ROOT / "results/shared_suite"
     launch_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -135,6 +146,8 @@ def launch_tmux(args):
     command = shlex.join([sys.executable, "-u", str(Path(__file__).resolve()), *forwarded])
     shell_command = f"exec {command} >> {shlex.quote(log_name)} 2>&1"
     window_name = "maca-10x10" if args.tasks == ["10x10_3p3f"] and args.methods == ["maca"] else "shared-suite"
+    if args.maca_reward_standardization == "shaped":
+        window_name += "-shaped-norm"
     window = subprocess.check_output([
         "tmux", "new-window", "-d", "-P", "-F", "#{window_id}",
         "-t", "epymarl-maca:", "-n", window_name, "-c", str(ROOT), shell_command,

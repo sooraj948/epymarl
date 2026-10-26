@@ -40,6 +40,7 @@ save_model_interval: 100000
 learner: maca_ppo_learner
 name: maca_mappo_ns
 maca:
+  reward_standardization: environment  # shaped additionally requires standardise_rewards=True.
   beta: 0.1
   beta_threshold: -0.01
   beta_ramp: 0.35

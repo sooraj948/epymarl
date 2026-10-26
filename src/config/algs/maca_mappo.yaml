@@ -24,6 +24,7 @@ eps_clip: 0.2
 name: "maca_mappo"
 t_max: 20050000
 maca:
+  reward_standardization: environment  # environment (existing) or shaped (pooled after shaping).
   beta: 0.1
   beta_threshold: -0.01
   beta_ramp: 0.35
