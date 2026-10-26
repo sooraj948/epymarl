@@ -11,6 +11,13 @@ review the experiment matrix, or add `--smoke --tasks 8x8_2p2f_coop` for a
 short execution check. [Walkthrough 83](docs/walkthrough-83.md) records the
 major choices, exact objectives, prescribed settings, replay rules and checks.
 
+For **8x8 three-player/two-food and 10x10 three-player/three-food LBF only**,
+use `./run_qmix_3agent_lbf.sh --dry-run` to preview or
+`./run_qmix_3agent_lbf.sh --tmux` to launch. This wrapper fixes the three methods
+and MACA beta at **0.1**, with four seeds per method/task: 24 jobs, 2M steps per
+8x8 run and 4M per 10x10 run. Task groups run sequentially with at most eight
+trainers. `--max-parallel`, `--seeds` and `--smoke` remain available.
+
 ```bash
 ./run_shared_suite.sh --dry-run
 ./run_shared_suite.sh --tmux
