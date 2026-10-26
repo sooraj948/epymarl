@@ -46,6 +46,12 @@ The earlier separate, feedforward comparison remains available through
 `maca_mappo_ns`. Its settings and resource benchmarks are documented in
 [walkthrough 77](docs/walkthrough-77.md).
 
+Plot the completed shared suite, including the transferred historical MAPPO
+seed 1587, with `../.TPCA/bin/python scripts/plot_shared_suite.py`. PNG/PDF
+figures, a run-to-seed index and raw/aggregated CSVs go to the suite's `plots/`
+directory. [Walkthrough 80](docs/walkthrough-80.md) explains folder names,
+historical-run provenance and the aggregation convention.
+
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes
 - **New!** Support for training in environments with individual rewards for all agents (for all algorithms that support such settings)
 - **New!** Updated EPyMARL to use maintained [Gymnasium](https://gymnasium.farama.org/index.html) library instead of deprecated OpenAI Gym version 0.21.
