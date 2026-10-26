@@ -124,6 +124,9 @@ def run_sequential(args, logger):
         scheme["reward"] = {"vshape": (args.n_agents,)}
     groups = {"agents": args.n_agents}
     preprocess = {"actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])}
+    learner_class = le_REGISTRY[args.learner]
+    if hasattr(learner_class, "extend_scheme"):
+        learner_class.extend_scheme(args, scheme)
 
     buffer = ReplayBuffer(
         scheme,
@@ -141,7 +144,7 @@ def run_sequential(args, logger):
     runner.setup(scheme=scheme, groups=groups, preprocess=preprocess, mac=mac)
 
     # Learner
-    learner = le_REGISTRY[args.learner](mac, buffer.scheme, logger, args)
+    learner = learner_class(mac, buffer.scheme, logger, args)
 
     if args.use_cuda:
         learner.cuda()
@@ -198,6 +201,8 @@ def run_sequential(args, logger):
     while runner.t_env <= args.t_max:
         # Run for a whole episode at a time
         episode_batch = runner.run(test_mode=False)
+        if hasattr(learner, "prepare_episode"):
+            learner.prepare_episode(episode_batch, runner.t_env)
         buffer.insert_episode_batch(episode_batch)
 
         if buffer.can_sample(args.batch_size):

@@ -513,7 +513,7 @@ class CreditPipeline:
         return reward
 
     def process(self, ep, trajectories, states, final_state, env_return, running_avg,
-                env, initial_snapshot, initial_obs, agents, team_rewards=None):
+                env, initial_snapshot, initial_obs, agents, team_rewards=None, episode_score=None):
         c = self.config
         signatures = (self.encoder.encode_per_agent_from_state(final_state, c)
                       if self.mixer and c.terminal_goal_input else
@@ -526,7 +526,10 @@ class CreditPipeline:
         if self.score_std_scaling:
             self._score_batch_advantages.append(trajectory_gae_advantages(
                 self.frozen.values(states), team_rewards, c.gamma, c.ppo_gae_lambda))
-        raw_target = self.target(states, final_state, team_rewards)
+        raw_target = (self.target(states, final_state, team_rewards) if episode_score is None
+                      else float(episode_score))
+        if not np.isfinite(raw_target):
+            raise ValueError("Trajectory score must be finite")
         target = raw_target / self.score_divisor
         scoring_reducer = (StdScaledScorer(self.reducer, self.score_divisor)
                            if self.score_std_scaling else self.reducer)

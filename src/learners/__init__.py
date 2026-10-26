@@ -7,10 +7,12 @@ from .actor_critic_pac_dcg_learner import PACDCGLearner
 from .maddpg_learner import MADDPGLearner
 from .ppo_learner import PPOLearner
 from .maca_ppo_learner import MACAPPOLearner
+from .qmix_lbf_learner import LBFQMIXLearner
 
 
 REGISTRY = {}
 REGISTRY["q_learner"] = QLearner
+REGISTRY["qmix_lbf_learner"] = LBFQMIXLearner
 REGISTRY["coma_learner"] = COMALearner
 REGISTRY["qtran_learner"] = QTranLearner
 REGISTRY["actor_critic_learner"] = ActorCriticLearner

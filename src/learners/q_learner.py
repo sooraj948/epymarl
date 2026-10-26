@@ -57,9 +57,7 @@ class QLearner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         avail_actions = batch["avail_actions"]
 
-        if self.args.standardise_rewards:
-            self.rew_ms.update(rewards)
-            rewards = (rewards - self.rew_ms.mean) / th.sqrt(self.rew_ms.var)
+        rewards = self._prepare_rewards(batch, rewards, mask, t_env)
 
         if self.args.common_reward:
             assert (
@@ -79,6 +77,7 @@ class QLearner:
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(
             3
         )  # Remove the last dim
+        auxiliary_loss = self._auxiliary_loss(batch, chosen_action_qvals, rewards, mask, t_env)
 
         # Calculate the Q-Values necessary for the target
         target_mac_out = []
@@ -135,7 +134,7 @@ class QLearner:
         masked_td_error = td_error * mask
 
         # Normal L2 loss, take mean over actual data
-        loss = (masked_td_error**2).sum() / mask.sum()
+        loss = (masked_td_error**2).sum() / mask.sum() + auxiliary_loss
 
         # Optimise
         self.optimiser.zero_grad()
@@ -174,6 +173,15 @@ class QLearner:
                 t_env,
             )
             self.log_stats_t = t_env
+
+    def _prepare_rewards(self, batch, rewards, mask, t_env):
+        if self.args.standardise_rewards:
+            self.rew_ms.update(rewards)
+            rewards = (rewards - self.rew_ms.mean) / th.sqrt(self.rew_ms.var)
+        return rewards
+
+    def _auxiliary_loss(self, batch, chosen_agent_qvals, rewards, mask, t_env):
+        return chosen_agent_qvals.new_zeros(())
 
     def _update_targets_hard(self):
         self.target_mac.load_state(self.mac)

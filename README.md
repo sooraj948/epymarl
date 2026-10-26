@@ -4,6 +4,13 @@ This fork augments EPyMARL MAPPO with online random-donor MACA credit. The share
 MAPPO configuration retains the stock recurrent actors, agent-conditioned shared
 centralized critic, entropy coefficient 0.001, and reward standardization.
 
+Recurrent **QMIX for LBF** now has a matched baseline and two MACA variants:
+`qmix_lbf`, `maca_qmix_aux` (individual return regularization), and
+`maca_qmix_sum` (summed team bonus). Run `./run_qmix_suite.sh --dry-run` to
+review the experiment matrix, or add `--smoke --tasks 8x8_2p2f_coop` for a
+short execution check. [Walkthrough 83](docs/walkthrough-83.md) records the
+major choices, exact objectives, prescribed settings, replay rules and checks.
+
 ```bash
 ./run_shared_suite.sh --dry-run
 ./run_shared_suite.sh --tmux

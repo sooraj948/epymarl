@@ -95,19 +95,36 @@ class EPyMARLScorer(FrozenPPOScorer):
 
 
 class MACAAdapter:
+    options = {
+        "beta", "beta_threshold", "beta_ramp", "fit_freq", "mixer_epochs",
+        "mixer_batch_size", "n_samples", "buffer_capacity", "warmup_episodes",
+        "shape_wins", "ppo_gae_lambda", "reward_standardization",
+    }
+
+    def _validate_algorithm(self, args):
+        if (args.critic_type not in {"cv_critic", "cv_critic_ns"}
+                or args.mac not in {"basic_mac", "non_shared_mac"}
+                or args.obs_last_action or args.obs_individual_obs):
+            raise ValueError("MACA supports state-only centralized MAPPO critics and basic/non-shared actors")
+        if not (args.buffer_size == args.batch_size == args.batch_size_run):
+            raise ValueError("MACA requires buffer_size=batch_size=batch_size_run for fresh episode batches")
+
+    def _configure_algorithm(self, c, args):
+        c.online_critic_score = c.mean_advantage_score = c.gae_advantage_score = True
+        c.negate_mean_advantage_score = c.occupancy_goal_input = True
+        c.centralized_critic, c.shared_critic = True, args.critic_type == "cv_critic"
+
+    def _make_scorer(self, critic, config):
+        return EPyMARLScorer(critic, config)
+
     def __init__(self, args, scheme, critic, logger):
         if not args.common_reward or args.reward_scalarisation != "sum":
             raise ValueError("MACA requires common_reward=True and reward_scalarisation=sum")
         if args.standardise_returns:
             raise ValueError("MACA currently requires standardise_returns=False")
-        if (args.critic_type not in {"cv_critic", "cv_critic_ns"}
-                or args.mac not in {"basic_mac", "non_shared_mac"}
-                or args.obs_last_action or args.obs_individual_obs):
-            raise ValueError("MACA supports state-only centralized MAPPO critics and basic/non-shared actors")
+        self._validate_algorithm(args)
         if args.env != "gymma" or args.env_args.get("pretrained_wrapper"):
             raise ValueError("MACA currently supports native full-sight LBF through gymma")
-        if not (args.buffer_size == args.batch_size == args.batch_size_run):
-            raise ValueError("MACA requires buffer_size=batch_size=batch_size_run for fresh episode batches")
         allowed_env = {"key", "time_limit", "pretrained_wrapper", "seed"}
         if set(args.env_args) - allowed_env:
             raise ValueError("Additional environment constructor settings are not supported by the MACA donor bank")
@@ -123,12 +140,7 @@ class MACAAdapter:
                 or scheme["obs"]["vshape"] != c.obs_dim_flat
                 or scheme["state"]["vshape"] != c.n_agents * c.obs_dim_flat):
             raise ValueError("MACA environment dimensions do not match native LBF observations")
-        allowed = {
-            "beta", "beta_threshold", "beta_ramp", "fit_freq", "mixer_epochs",
-            "mixer_batch_size", "n_samples", "buffer_capacity", "warmup_episodes",
-            "shape_wins", "ppo_gae_lambda",
-            "reward_standardization",
-        }
+        allowed = self.options
         if set(args.maca) - allowed:
             raise ValueError(f"Unknown MACA settings: {sorted(set(args.maca) - allowed)}")
         for name, value in args.maca.items():
@@ -148,9 +160,7 @@ class MACAAdapter:
         c.pipeline = 5
         c.encoder_type, c.reducer_type = "occupancy", "trajectory_return"
         c.baseline_mode, c.beta_mode, c.r_int_injection = "multi_sample", "dynamic", "uniform"
-        c.online_critic_score = c.mean_advantage_score = c.gae_advantage_score = True
-        c.negate_mean_advantage_score = c.occupancy_goal_input = True
-        c.centralized_critic, c.shared_critic = True, args.critic_type == "cv_critic"
+        self._configure_algorithm(c, args)
         self.standardise_rewards = args.standardise_rewards
         self.reward_standardization = args.maca.get("reward_standardization", "environment")
         self.output = Path(args.local_results_path) / "maca" / args.unique_token
@@ -187,7 +197,7 @@ class MACAAdapter:
                     n_agents=c.n_agents, clip_val=None, n_samples=c.n_samples,
                 ),
                 TotalEpisodeBuffer(buffer_capacity=c.buffer_capacity),
-                scorer=EPyMARLScorer(critic, c),
+                scorer=self._make_scorer(critic, c),
             )
         self._write_manifest(args)
 
@@ -216,6 +226,16 @@ class MACAAdapter:
         for name in ("torch", "numpy", "gymnasium", "lbforaging", "scikit-learn", "sacred"):
             versions[name] = importlib.metadata.version(name)
         manifest = {
+            **self._manifest_details(args),
+            "python": sys.version,
+            "git_commit": git("rev-parse", "HEAD"), "git_status": git("status", "--porcelain"),
+            "versions": versions, "device": args.device, "config": vars(args),
+            "maca_config": vars(self.config),
+        }
+        (self.output / "manifest.json").write_text(json.dumps(to_jsonable(manifest), indent=2) + "\n")
+
+    def _manifest_details(self, args):
+        return {
             "variant": "online_random_donor_splice", "policy_advantages": "epymarl_nstep",
             "teacher_score": "negative_mean_gae_without_advantage_standardization",
             "teacher_reward_units": (
@@ -228,12 +248,7 @@ class MACAAdapter:
             "reward_moments_source": (
                 "shaped_rewards_pooled_over_agents_and_valid_transitions_once_per_ppo_batch"
                 if self.reward_standardization == "shaped" else "environment_rewards_only_once_per_ppo_batch"),
-            "python": sys.version,
-            "git_commit": git("rev-parse", "HEAD"), "git_status": git("status", "--porcelain"),
-            "versions": versions, "device": args.device, "config": vars(args),
-            "maca_config": vars(self.config),
         }
-        (self.output / "manifest.json").write_text(json.dumps(to_jsonable(manifest), indent=2) + "\n")
 
     def prepare(self, batch, t_env):
         c = self.config
