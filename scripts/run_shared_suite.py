@@ -27,6 +27,10 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-parallel", type=int, default=8)
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS))
+    parser.add_argument("--tasks", nargs="+", choices=[task[0] for task in TASKS],
+                        help="Select task groups; defaults to all three")
+    parser.add_argument("--methods", nargs="+", choices=["mappo", "coma", "maca"],
+                        help="Explicit methods on selected tasks; maca includes all three betas")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true",
                         help="6,000 steps per variant/task, one seed, ten evaluation episodes, no checkpoints")
@@ -50,9 +54,14 @@ def stages_for(args, output):
     stages = []
     seeds = args.seeds[:1] if args.smoke else args.seeds
     for index, (task, environment, budget) in enumerate(TASKS):
+        if args.tasks and task not in args.tasks:
+            continue
         variants = [("mappo", "mappo", None), ("coma", "coma", None)]
-        if index == 0:
+        if index == 0 or (args.methods and "maca" in args.methods):
             variants += [("maca_beta_" + str(beta).replace(".", "p"), "maca_mappo", beta) for beta in BETAS]
+        if args.methods:
+            variants = [variant for variant in variants if
+                        ("maca" if variant[2] is not None else variant[0]) in args.methods]
         jobs = []
         for method, config, beta in variants:
             for seed in seeds:
@@ -113,6 +122,10 @@ def launch_tmux(args):
         forwarded.append("--smoke")
     if args.resume:
         forwarded += ["--resume", str(args.resume)]
+    if args.tasks:
+        forwarded += ["--tasks", *args.tasks]
+    if args.methods:
+        forwarded += ["--methods", *args.methods]
     launch_dir = ROOT / "results/shared_suite"
     launch_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -121,9 +134,10 @@ def launch_tmux(args):
     os.close(fd)
     command = shlex.join([sys.executable, "-u", str(Path(__file__).resolve()), *forwarded])
     shell_command = f"exec {command} >> {shlex.quote(log_name)} 2>&1"
+    window_name = "maca-10x10" if args.tasks == ["10x10_3p3f"] and args.methods == ["maca"] else "shared-suite"
     window = subprocess.check_output([
         "tmux", "new-window", "-d", "-P", "-F", "#{window_id}",
-        "-t", "epymarl-maca:", "-n", "shared-suite", "-c", str(ROOT), shell_command,
+        "-t", "epymarl-maca:", "-n", window_name, "-c", str(ROOT), shell_command,
     ], text=True).strip()
     print(f"Started in epymarl-maca window {window}; console log: {log_name}", flush=True)
     return 0

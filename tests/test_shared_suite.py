@@ -56,6 +56,39 @@ def test_task_registration_and_native_observations():
     suite.preflight()
 
 
+def test_explicit_ten_by_ten_maca_only(tmp_path):
+    args = suite.parse_args(["--tasks", "10x10_3p3f", "--methods", "maca"])
+    stages = suite.stages_for(args, tmp_path)
+    assert args.max_parallel == 8
+    assert len(stages) == 1 and stages[0]["task"] == "10x10_3p3f"
+    jobs = stages[0]["jobs"]
+    assert len(jobs) == 12
+    assert {job.seed for job in jobs} == set(suite.SEEDS)
+    assert {job.method for job in jobs} == {"maca_beta_0p08", "maca_beta_0p1", "maca_beta_0p15"}
+    for job in jobs:
+        assert job.budget_steps == 4_000_000
+        assert "--config=maca_mappo" in job.command
+        assert "env_args.key=lbforaging:Foraging-10x10-3p-3f-v3" in job.command
+        assert "env_args.time_limit=50" in job.command
+        assert "use_cuda=False" in job.command
+
+
+def test_tmux_forwards_task_and_method_selection(tmp_path, monkeypatch):
+    calls = []
+    args = suite.parse_args(["--tasks", "10x10_3p3f", "--methods", "maca", "--tmux"])
+    monkeypatch.setattr(suite, "ROOT", tmp_path)
+    monkeypatch.setattr(suite.subprocess, "run", lambda *a, **kw: None)
+    def capture(command, **kwargs):
+        calls.append(command)
+        return "@42\n"
+    monkeypatch.setattr(suite.subprocess, "check_output", capture)
+    assert suite.launch_tmux(args) == 0
+    assert len(calls) == 1
+    command = calls[0]
+    assert command[command.index("-n") + 1] == "maca-10x10"
+    assert "--tasks 10x10_3p3f --methods maca" in command[-1]
+
+
 def test_stages_run_sequentially_and_completed_resume(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(suite, "preflight", lambda: None)

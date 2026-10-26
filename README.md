@@ -14,6 +14,12 @@ Omit it to run in the current terminal. No virtualenv activation is needed: the
 wrapper selects `../.TPCA/bin/python`, or `MACA_PYTHON` if set. Dependencies are
 in [`requirements-maca.txt`](requirements-maca.txt); Python 3.10 is tested.
 
+For the additional **MACA-only 10x10 three-player, three-food experiment**, use
+`./run_maca_10x10.sh --tmux`. It runs betas 0.08, 0.1 and 0.15 across all four
+seeds, 4M steps per run, with at most eight concurrent jobs. It opens a
+`maca-10x10` window in the existing session. See
+[walkthrough 81](docs/walkthrough-81.md) for settings and commands.
+
 The suite runs these full-sight, 50-step LBF tasks **sequentially**, each with
 up to eight simultaneous CPU trainers:
 
